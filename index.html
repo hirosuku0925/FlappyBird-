@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI GAME CENTER</title>
+    <style>
+        body { margin: 0; background: #222; color: white; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; }
+        #gameMenu { padding: 50px; text-align: center; }
+        .btn { padding: 20px 40px; margin: 15px; font-size: 24px; cursor: pointer; border: none; color: white; border-radius: 15px; font-weight: bold; }
+        .btn-bird { background: #73bf2e; }
+        .btn-car { background: #ce1111; }
+        #gameArea { display: none; position: relative; }
+        canvas { display: block; margin: 20px auto; border: 4px solid #333; }
+        #msg { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+               text-align: center; color: white; text-shadow: 2px 2px #000; font-size: 28px; pointer-events: none; }
+        .back { margin-top: 10px; color: #aaa; cursor: pointer; text-decoration: underline; }
+    </style>
+</head>
+<body>
+
+<div id="gameMenu">
+    <h1>🕹️ AI ゲームセンター</h1>
+    <button class="btn btn-bird" onclick="selectGame('bird')">🐤 FLAPPY BIRD</button><br>
+    <button class="btn btn-car" onclick="selectGame('car')">🏎️ CAR RACER</button>
+</div>
+
+<div id="gameArea">
+    <div id="msg">READY?</div>
+    <canvas id="gameCanvas"></canvas>
+    <div class="back" onclick="location.reload()">メニューにもどる</div>
+</div>
+
+<script>
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+const msg = document.getElementById("msg");
+const birdImg = new Image(); birdImg.src = 'bird.png';
+
+let activeMode = null;
+let gameActive = false;
+let score = 0;
+let frame = 0;
+let lastTime = 0;
+const interval = 1000 / 60;
+
+// --- 🕊️ あなたの完璧な設定（完全そのまま） ---
+const CONFIG = { gravity: 0.25, jump: 4.8, pipeGap: 160, pipeSpeed: 2.0, pipeInterval: 100 };
+let bird = { x: 60, y: 200, w: 34, h: 24, velocity: 0 };
+let pipes = [];
+
+// --- 🏎️ 車ゲーム設定 ---
+const CAR_CONFIG = { speed: 4, enemyInterval: 50 };
+let car = { x: 140, y: 400, w: 40, h: 65 };
+let enemies = [];
+
+// --- 🛠️ あなたのコードの土管描画（完全そのまま） ---
+function drawPipe(x, y, w, h, isTop) {
+    ctx.fillStyle = "#73bf2e";
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = 2;
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeRect(x, y, w, h);
+    let capH = 26, capW = w + 10, capX = x - 5;
+    let capY = isTop ? y + h - capH : y;
+    ctx.fillRect(capX, capY, capW, capH);
+    ctx.strokeRect(capX, capY, capW, capH);
+}
+
+// --- 音声（あなたのコードベース） ---
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function playSound(f1, f2, dur) {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.frequency.setValueAtTime(f1, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(f2, audioCtx.currentTime + dur);
+    gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+    osc.start(); osc.stop(audioCtx.currentTime + dur);
+}
+
+function selectGame(mode) {
+    activeMode = mode;
+    document.getElementById('gameMenu').style.display = 'none';
+    document.getElementById('gameArea').style.display = 'block';
+    reset();
+    requestAnimationFrame(loop);
+}
+
+function reset() {
+    canvas.width = 320; canvas.height = 480;
+    score = 0; frame = 0; pipes = []; enemies = [];
+    gameActive = true; msg.style.display = "none";
+    if (activeMode === 'bird') {
+        bird.y = 200; bird.velocity = 0;
+        canvas.style.background = "#70c5ce";
+    } else {
+        car.x = 140;
+        canvas.style.background = "#444";
+    }
+}
+
+function input() {
+    if (!gameActive) { reset(); return; }
+    if (activeMode === 'bird') {
+        bird.velocity = -CONFIG.jump;
+        playSound(450, 300, 0.1);
+    }
+}
+
+window.addEventListener("mousedown", input);
+window.addEventListener("keydown", (e) => { if(e.code === "Space") input(); });
+window.addEventListener("mousemove", (e) => {
+    if (activeMode === 'car' && gameActive) {
+        const rect = canvas.getBoundingClientRect();
+        car.x = (e.clientX - rect.left) - car.w / 2;
+    }
+});
+
+function update() {
+    if (!gameActive) return;
+    frame++;
+
+    if (activeMode === 'bird') {
+        bird.velocity += CONFIG.gravity;
+        bird.y += bird.velocity;
+        if (frame % CONFIG.pipeInterval === 0) {
+            let h = Math.floor(Math.random() * (canvas.height - 280)) + 40;
+            pipes.push({ x: canvas.width, top: h });
+        }
+        for (let i = pipes.length - 1; i >= 0; i--) {
+            pipes[i].x -= CONFIG.pipeSpeed;
+            let m = 6;
+            if (bird.x + bird.w - m > pipes[i].x && bird.x + m < pipes[i].x + 52) {
+                if (bird.y + m < pipes[i].top || bird.y + bird.h - m > pipes[i].top + CONFIG.pipeGap) gameOver();
+            }
+            if (Math.abs(pipes[i].x - (bird.x - 52)) < CONFIG.pipeSpeed) {
+                score++; playSound(800, 1000, 0.1);
+            }
+            if (pipes[i].x < -60) pipes.splice(i, 1);
+        }
+        if (bird.y + bird.h > canvas.height || bird.y < 0) gameOver();
+    } 
+    else if (activeMode === 'car') {
+        if (frame % CAR_CONFIG.enemyInterval === 0) {
+            enemies.push({ x: Math.random() * (canvas.width - 40), y: -70 });
+        }
+        for (let i = enemies.length - 1; i >= 0; i--) {
+            enemies[i].y += CAR_CONFIG.speed + (score * 0.1);
+            if (car.x < enemies[i].x + 40 && car.x + car.w > enemies[i].x && car.y < enemies[i].y + 60 && car.y + car.h > enemies[i].y) gameOver();
+            if (enemies[i].y > canvas.height) {
+                enemies.splice(i, 1); score++; playSound(1000, 1200, 0.05);
+            }
+        }
+    }
+}
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (activeMode === 'bird') {
+        ctx.fillStyle = "#70c5ce"; ctx.fillRect(0,0,320,480);
+        pipes.forEach(p => {
+            drawPipe(p.x, 0, 52, p.top, true);
+            drawPipe(p.x, p.top + CONFIG.pipeGap, 52, canvas.height, false);
+        });
+        ctx.save();
+        ctx.translate(bird.x + bird.w/2, bird.y + bird.h/2);
+        ctx.rotate(Math.min(Math.PI/2, Math.max(-Math.PI/6, bird.velocity * 0.15)));
+        if (birdImg.complete && birdImg.width > 0) ctx.drawImage(birdImg, -bird.w/2, -bird.h/2, bird.w, bird.h);
+        else { ctx.fillStyle = "#f1c40f"; ctx.fillRect(-bird.w/2, -bird.h/2, bird.w, bird.h); }
+        ctx.restore();
+    } 
+    else if (activeMode === 'car') {
+        ctx.fillStyle = "#444"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.strokeStyle = "#fff"; ctx.setLineDash([20, 20]);
+        ctx.beginPath(); ctx.moveTo(160, 0); ctx.lineTo(160, 480); ctx.stroke();
+        ctx.fillStyle = "#ff4444"; ctx.fillRect(car.x, car.y, car.w, car.h);
+        ctx.fillStyle = "#4444ff";
+        enemies.forEach(e => ctx.fillRect(e.x, e.y, 40, 60));
+    }
+
+    ctx.fillStyle = "white"; ctx.font = "bold 40px sans-serif"; ctx.textAlign = "center";
+    ctx.strokeStyle = "black"; ctx.lineWidth = 6;
+    ctx.strokeText(score, canvas.width/2, 70); ctx.fillText(score, canvas.width/2, 70);
+}
+
+function loop(timestamp) {
+    const deltaTime = timestamp - lastTime;
+    if (deltaTime >= interval) {
+        update();
+        draw();
+        lastTime = timestamp - (deltaTime % interval);
+    }
+    requestAnimationFrame(loop);
+}
+
+function gameOver() {
+    gameActive = false; playSound(150, 50, 0.4);
+    msg.style.display = "block";
+    msg.innerHTML = `GAME OVER<br>SCORE: ${score}<br>RETRY?`;
+}
+</script>
+</body>
+</html>
